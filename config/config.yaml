@@ -1,0 +1,61 @@
+# SynapseBI 配置
+# ===============
+
+# --- 向量数据库 ---
+vector_store:
+  backend: qdrant            # qdrant | milvus
+  host: localhost
+  port: 6333
+  grpc_port: 6334
+
+# --- 嵌入模型 ---
+embedding:
+  provider: bge               # bge | openai
+  model_name: BAAI/bge-large-zh-v1.5
+  device: cpu                 # cpu | cuda
+  # openai 兼容配置（embedding.provider=openai 时生效）
+  openai_api_base: http://localhost:8000/v1
+  openai_model: text-embedding-3-small
+
+# --- LLM ---
+llm:
+  provider: ollama            # openai | anthropic | ollama
+  model: qwen2.5:7b
+  api_base: http://localhost:11434/v1
+  api_key: ""
+  temperature: 0.0
+  max_tokens: 2048
+
+# --- Text-to-SQL ---
+text_to_sql:
+  db_path: ./data/enterprise.db
+  allowed_tables: []          # 空 = 全部允许，建议生产环境明确列出
+
+# --- ETL ---
+etl:
+  source_dir: ./data
+  pdf_backend: pymupdf        # pymupdf | unstructured | paddleocr
+  recursive: true
+  excel:
+    drop_empty_rows: true
+    drop_empty_cols: true
+    drop_duplicates: true
+    detect_outliers: true
+
+# --- API ---
+api:
+  host: 0.0.0.0
+  port: 8000
+  api_key: ""                 # 留空 = 不启用 API Key 认证
+  cors_origins:
+    - http://localhost:8501   # Streamlit 默认端口
+
+# --- Streamlit ---
+streamlit:
+  host: 0.0.0.0
+  port: 8501
+
+# --- 日志 ---
+logging:
+  level: INFO
+  file: ./logs/synapsebi.log

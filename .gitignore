@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 数据 & 日志
+data/
+logs/
+*.db
+*.sqlite3
+
+# 导出缓存 / 测试输出
+exports/
+tests/test_data/*.jsonl
+
+# Docker volumes
+docker/volumes/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment
+.env
+.env.local

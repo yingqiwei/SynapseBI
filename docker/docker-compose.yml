@@ -1,0 +1,121 @@
+# ============================================================
+# SynapseBI Docker Compose
+# ============================================================
+# 一键启动:
+#   docker-compose up -d
+#
+# 服务:
+#   - qdrant:    向量数据库
+#   - ollama:     本地大模型（可选，也可用远程 API）
+#   - synapsebi:  Streamlit 前端 + FastAPI 后端
+# ============================================================
+
+version: "3.9"
+
+services:
+  # ============================================================
+  # Qdrant — 向量数据库
+  # ============================================================
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: synapsebi-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"   # REST API
+      - "6334:6334"   # gRPC (内部)
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================================
+  # Ollama — 本地私有化大模型 (可选)
+  # ============================================================
+  # 如果已有远程 LLM API，可注释掉此服务，并在 config.yaml 中
+  # 指向远程地址。
+  ollama:
+    image: ollama/ollama:latest
+    container_name: synapsebi-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+    # 启动后拉取默认模型（首次启动较慢）
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        ollama serve &
+        sleep 5
+        ollama pull qwen2.5:7b || true
+        wait
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    profiles:
+      - gpu   # 仅在使用 GPU profile 时启动
+
+  # ============================================================
+  # SynapseBI — 应用主服务
+  # ============================================================
+  synapsebi:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: synapsebi-app
+    restart: unless-stopped
+    ports:
+      - "8501:8501"   # Streamlit 前端
+      - "8000:8000"   # FastAPI 后端
+    volumes:
+      - ../data:/app/data          # 数据文件
+      - ../config:/app/config      # 配置文件
+      - ../logs:/app/logs          # 日志
+    environment:
+      # 向量数据库
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      # LLM
+      - LLM_PROVIDER=ollama
+      - LLM_MODEL=qwen2.5:7b
+      - LLM_API_BASE=http://ollama:11434/v1
+      # 数据库
+      - DB_PATH=/app/data/enterprise.db
+      # API
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    command: >
+      sh -c "
+      echo 'Starting SynapseBI...' &&
+      streamlit run module_3_frontend/app.py
+        --server.address=0.0.0.0
+        --server.port=8501
+        --server.headless=true
+        --server.enableCORS=false
+        --server.enableXsrfProtection=false &
+      sleep 3 &&
+      python -m uvicorn module_3_frontend.api:create_app
+        --factory
+        --host 0.0.0.0
+        --port 8000
+      "
+
+volumes:
+  qdrant_data:
+    driver: local
+  ollama_data:
+    driver: local
