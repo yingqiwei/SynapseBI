@@ -492,14 +492,12 @@ def main():
         initial_sidebar_state="expanded",
     )
 
-    # 自定义样式（适配明暗主题）
-    theme = st.get_option("theme.base")
-    bg_css = "" if theme == "dark" else ".stApp { background-color: #f8fafc; }"
+    # 自定义样式
+    # 注意：不要覆盖 .stApp 背景色，否则深色主题下主区域会保持白色
     st.markdown(
-        f"""
+        """
         <style>
-        {bg_css}
-        .stChatMessage {{ border-radius: 12px; }}
+        .stChatMessage { border-radius: 12px; }
         </style>
         """,
         unsafe_allow_html=True,
