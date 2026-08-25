@@ -80,6 +80,26 @@ def _lazy_init_engine():
         )
         sql_engine = TextToSQLEngine(llm=llm, db_path=os.getenv("DB_PATH", "enterprise.db"))
 
+        # 自动从 SQLite 数据库注册表结构，否则 Text-to-SQL 没有 schema 上下文
+        try:
+            import pandas as pd
+
+            conn = sql_engine.connection
+            tables = [
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                ).fetchall()
+            ]
+            for table in tables:
+                df = pd.read_sql(f'SELECT * FROM "{table}" LIMIT 50', conn)
+                sql_engine.register_schema_from_df(table, df, description=f"{table} 业务表")
+            if tables:
+                st.success(f"已注册数据库表结构: {tables}")
+        except Exception as exc:
+            logger.warning("数据库表结构注册失败: %s", exc)
+
         # 路由器
         router = IntentRouter(mode="rule")
 
@@ -138,7 +158,7 @@ def _render_sidebar():
         )
 
         st.markdown("---")
-        st.caption(f"© 2025 SynapseBI")
+        st.caption(f"© 2026 SynapseBI")
 
 
 def _render_query_page():

@@ -104,7 +104,10 @@ class PyMuPDFBackend(BasePDFBackend):
             # --- 文本块 ---
             text_blocks = page.get_text("blocks")
             for block in text_blocks:
-                x0, y0, x1, y1, text, block_type, _ = block
+                # get_text("blocks") 元组结构：
+                # (x0, y0, x1, y1, 文本, 块编号 block_no, 块类型 block_type)
+                # block_type: 0=文本, 1=图片
+                x0, y0, x1, y1, text, _, block_type = block
                 text = text.strip()
                 if not text:
                     continue

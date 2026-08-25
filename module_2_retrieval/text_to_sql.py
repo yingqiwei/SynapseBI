@@ -107,17 +107,28 @@ class SQLGuard:
         return True, "ok"
 
     def _extract_table_names(self, sql: str) -> list[str]:
-        """从 SQL 中提取表名（简化版）"""
+        """从 SQL 中提取表名（简化版，剔除 CTE 别名）"""
         tables: list[str] = []
         # 匹配 FROM / JOIN 后的标识符
         pattern = r"(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+([`\[\"\']?\w+[`\]\"\']?(?:\s*,\s*[`\[\"\']?\w+[`\]\"\']?)*)"
         matches = re.findall(pattern, sql, re.IGNORECASE)
+        cte_names = self._extract_cte_names(sql)
         for m in matches:
             for token in re.split(r"\s*,\s*", m):
                 clean = token.strip("`[]\"'")
-                if clean:
+                if clean and clean.upper() not in cte_names:
                     tables.append(clean)
         return tables
+
+    @staticmethod
+    def _extract_cte_names(sql: str) -> set[str]:
+        """提取 WITH 子句中定义的 CTE 别名，避免被误当作表名"""
+        ctes: set[str] = set()
+        # 匹配每个 CTE 定义: WITH <name> AS ( 以及后续的 , <name> AS (
+        pattern = r"(?:WITH|,)\s*([`\[\"\']?\w+[`\]\"\']?)\s+AS\s*\("
+        for m in re.finditer(pattern, sql, re.IGNORECASE):
+            ctes.add(m.group(1).strip("`[]\"'").upper())
+        return ctes
 
     def set_allowed_tables(self, tables: list[str]) -> None:
         self.allowed_tables = set(t.upper() for t in tables)
@@ -194,8 +205,12 @@ class LLMProvider:
     def _chat_ollama(self, system: str, user: str) -> str:
         import requests
 
+        base = (self.api_base or "http://localhost:11434").rstrip("/")
+        # 兼容两种配置：http://host:11434 与 OpenAI 风格 http://host:11434/v1
+        if base.endswith("/v1"):
+            base = base[:-3]
         resp = requests.post(
-            f"{self.api_base or 'http://localhost:11434'}/api/chat",
+            f"{base}/api/chat",
             json={
                 "model": self.model,
                 "messages": [
@@ -203,6 +218,11 @@ class LLMProvider:
                     {"role": "user", "content": user},
                 ],
                 "stream": False,
+                "options": {
+                    "temperature": self.temperature,
+                    "num_predict": 512,
+                    "seed": 42,
+                },
             },
             timeout=120,
         )
@@ -234,8 +254,8 @@ class TextToSQLEngine:
 规则：
 1. 仅输出 SQL 语句，不要有任何解释或 markdown 包裹。
 2. 只使用 SELECT / WITH 语句，禁止任何写操作。
-3. 使用下面提供的表结构信息来确保字段名正确。
-4. 如果问题不适合用 SQL 回答（如需要向量检索），请输出: NOT_SQL
+3. 表名和列名必须严格使用下方 schema 中出现的原始名称（例如 "销售数据"、"部门"、"sales_amount"），禁止翻译、改写或臆造名称；名称含括号、空格等特殊字符时必须用双引号包裹，例如 "利润_(万元)"。
+4. 仅当问题明显属于文档/语义类（如解释概念、描述流程、总结报告内容）且与表格数据无关时，才输出: NOT_SQL；涉及数值、聚合、分组、排序、比较或筛选的问题，必须输出 SQL 查询语句。
 5. SQL 中不要包含注释。
 6. 不要使用任何函数或语法糖来绕过只读限制。"""
 
@@ -256,7 +276,10 @@ class TextToSQLEngine:
         """获取数据库连接"""
         if self._conn is None:
             if self.db_path:
-                self._conn = sqlite3.connect(self.db_path)
+                # FastAPI 等 Web 框架会在不同线程执行请求，
+                # 必须允许跨线程复用连接，否则 SQL 查询会抛
+                # "SQLite objects created in a thread can only be used in that same thread"
+                self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
                 self._conn.row_factory = sqlite3.Row
             else:
                 raise ValueError("需要提供 db_path 或 db_connection")
@@ -312,7 +335,10 @@ class TextToSQLEngine:
             if schema.sample_rows:
                 parts.append("  样本数据:")
                 for i, row in enumerate(schema.sample_rows, 1):
-                    parts.append(f"    [{i}] {json.dumps(row, ensure_ascii=False)}")
+                    # default=str 兜底：样本中可能含 Timestamp/date 等非 JSON 类型
+                    parts.append(
+                        f"    [{i}] {json.dumps(row, ensure_ascii=False, default=str)}"
+                    )
         return "\n".join(parts)
 
     def query(
@@ -334,59 +360,60 @@ class TextToSQLEngine:
 
         start = time.perf_counter()
 
-        # 1. 调用 LLM 生成 SQL
+        # 1. 调用 LLM 生成 SQL（执行失败时最多纠错重试 1 次）
         schema_ctx = self.build_schema_context()
-        user_msg = f"数据库 Schema:\n{schema_ctx}\n\n用户问题:\n{question}"
-
         logger.info("Text-to-SQL 请求: %s", question[:80])
 
-        sql_raw = self.llm.chat(self.SYSTEM_PROMPT, user_msg).strip()
+        from datetime import date
 
-        # 去除可能的 markdown 包裹
-        sql_raw = re.sub(r"^```(?:sql)?\s*", "", sql_raw)
-        sql_raw = re.sub(r"\s*```$", "", sql_raw)
-        sql_raw = sql_raw.strip().rstrip(";")
+        today = date.today().isoformat()
+        columns: list[str] = []
+        row_data: list[Any] = []
+        final_query = ""
+        last_error: str | None = None
 
-        # 2. 检查是否为非 SQL 问题
-        if sql_raw.upper() == "NOT_SQL" or not sql_raw:
-            elapsed = (time.perf_counter() - start) * 1000
-            return SQLResult(
-                query="",
-                natural_language=question,
-                columns=[],
-                rows=[],
-                row_count=0,
-                elapsed_ms=round(elapsed, 1),
-                error="NOT_SQL",
-                explanation="该问题不适合用 SQL 回答，建议使用向量检索。",
-            )
+        for attempt in range(2):
+            if attempt == 0:
+                user_msg = (
+                    f"当前日期：{today}。\n"
+                    f"数据库 Schema:\n{schema_ctx}\n\n用户问题:\n{question}"
+                )
+            else:
+                user_msg = (
+                    f"当前日期：{today}。\n"
+                    f"数据库 Schema:\n{schema_ctx}\n\n用户问题:\n{question}\n\n"
+                    f"注意：上一次生成的 SQL 执行失败：{last_error}\n"
+                    '请检查表名和列名是否与 schema 完全一致（含括号等特殊字符时用双引号包裹，例如 "利润_(万元)"），'
+                    "重新生成一条只读 SQL。"
+                )
 
-        # 3. 安全校验
-        is_safe, reason = self._guard.validate(sql_raw)
-        if not is_safe:
-            logger.warning("SQL 安全校验失败: %s → %s", sql_raw, reason)
-            elapsed = (time.perf_counter() - start) * 1000
-            return SQLResult(
-                query=sql_raw,
-                natural_language=question,
-                columns=[],
-                rows=[],
-                row_count=0,
-                elapsed_ms=round(elapsed, 1),
-                error=f"SQL 安全校验失败: {reason}",
-                explanation="",
-            )
+            sql_raw = self.llm.chat(self.SYSTEM_PROMPT, user_msg).strip()
 
-        # 4. 执行
-        if execute:
-            try:
-                cursor = self.connection.execute(sql_raw)
-                rows = cursor.fetchall()
-                columns = [desc[0] for desc in cursor.description] if cursor.description else []
-                row_data = [list(row) for row in rows]
-            except Exception as exc:
+            # 去除可能的 markdown 包裹
+            sql_raw = re.sub(r"^```(?:sql)?\s*", "", sql_raw)
+            sql_raw = re.sub(r"\s*```$", "", sql_raw)
+            sql_raw = sql_raw.strip().rstrip(";")
+            final_query = sql_raw
+
+            # 2. 检查是否为非 SQL 问题
+            if sql_raw.upper() == "NOT_SQL" or not sql_raw:
                 elapsed = (time.perf_counter() - start) * 1000
-                logger.error("SQL 执行失败: %s", exc)
+                return SQLResult(
+                    query="",
+                    natural_language=question,
+                    columns=[],
+                    rows=[],
+                    row_count=0,
+                    elapsed_ms=round(elapsed, 1),
+                    error="NOT_SQL",
+                    explanation="该问题不适合用 SQL 回答，建议使用向量检索。",
+                )
+
+            # 3. 安全校验
+            is_safe, reason = self._guard.validate(sql_raw)
+            if not is_safe:
+                logger.warning("SQL 安全校验失败: %s → %s", sql_raw, reason)
+                elapsed = (time.perf_counter() - start) * 1000
                 return SQLResult(
                     query=sql_raw,
                     natural_language=question,
@@ -394,15 +421,40 @@ class TextToSQLEngine:
                     rows=[],
                     row_count=0,
                     elapsed_ms=round(elapsed, 1),
-                    error=str(exc),
-                    explanation="SQL 执行时发生错误",
+                    error=f"SQL 安全校验失败: {reason}",
+                    explanation="",
                 )
-        else:
-            columns, row_data = [], []
+
+            # 4. 执行
+            if not execute:
+                break
+            try:
+                cursor = self.connection.execute(sql_raw)
+                rows = cursor.fetchall()
+                columns = [desc[0] for desc in cursor.description] if cursor.description else []
+                row_data = [list(row) for row in rows]
+                last_error = None
+                break
+            except Exception as exc:
+                last_error = str(exc)
+                logger.error("SQL 执行失败（第 %d 次）: %s", attempt + 1, exc)
+
+        if execute and last_error is not None:
+            elapsed = (time.perf_counter() - start) * 1000
+            return SQLResult(
+                query=final_query,
+                natural_language=question,
+                columns=[],
+                rows=[],
+                row_count=0,
+                elapsed_ms=round(elapsed, 1),
+                error=last_error,
+                explanation="SQL 执行时发生错误",
+            )
 
         elapsed = (time.perf_counter() - start) * 1000
         return SQLResult(
-            query=sql_raw,
+            query=final_query,
             natural_language=question,
             columns=columns,
             rows=row_data,

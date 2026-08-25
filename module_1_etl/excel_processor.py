@@ -149,6 +149,23 @@ def _infer_column_type(series: pd.Series) -> ColumnType:
     return "string"
 
 
+def _coerce_boolean(value: Any) -> Any:
+    """
+    将单个值统一转换为布尔语义（保留缺失值）。
+
+    pandas 读取 Excel 布尔单元格时通常会得到 1.0 / 0.0 浮点数，
+    因此除了字符串之外还必须处理数值类型，避免 str(1.0) == "1.0"
+    导致 True 被误判为 False。
+    """
+    if pd.isna(value):
+        return pd.NA
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return value == 1.0
+    return str(value).strip().lower() in ("true", "1", "yes")
+
+
 # ---------------------------------------------------------------------------
 # Excel 处理器
 # ---------------------------------------------------------------------------
@@ -324,11 +341,7 @@ class ExcelProcessor:
                 if numeric.notna().sum() > 0:
                     df[col] = numeric
             elif col_type == "boolean":
-                df[col] = df[col].apply(
-                    lambda x: str(x).strip().lower() in ("true", "1", "yes")
-                    if pd.notna(x)
-                    else pd.NA
-                )
+                df[col] = df[col].apply(_coerce_boolean)
 
         return df
 

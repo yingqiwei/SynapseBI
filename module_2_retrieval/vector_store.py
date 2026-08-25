@@ -451,13 +451,25 @@ class VectorStore:
                 ]
             )
 
-        hits = self.client.search(
-            collection_name=collection_name,
-            query_vector=query_vector,
-            limit=top_k,
-            score_threshold=score_threshold,
-            query_filter=query_filter,
-        )
+        # 兼容不同 qdrant-client 版本：
+        #   < 1.10 使用 client.search，>= 1.10 移除 search 改用 query_points
+        if hasattr(self.client, "search"):
+            hits = self.client.search(
+                collection_name=collection_name,
+                query_vector=query_vector,
+                limit=top_k,
+                score_threshold=score_threshold,
+                query_filter=query_filter,
+            )
+        else:
+            resp = self.client.query_points(
+                collection_name=collection_name,
+                query=query_vector,
+                limit=top_k,
+                score_threshold=score_threshold,
+                query_filter=query_filter,
+            )
+            hits = resp.points
 
         elapsed = (time.perf_counter() - start) * 1000
 
