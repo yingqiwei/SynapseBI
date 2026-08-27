@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 导入冒烟测试
+        run: python -c "from module_1_etl import ETLPipeline; from module_3_frontend.api import create_app; print('imports ok')"
+
+      - name: ETL 测试
+        run: python tests/test_module1_etl.py

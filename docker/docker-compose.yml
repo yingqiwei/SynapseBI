@@ -80,7 +80,7 @@ services:
       - "8000:8000"   # FastAPI 后端
     volumes:
       - ../data:/app/data          # 数据文件
-      - ../config:/app/config      # 配置文件
+      - ../configs:/app/configs    # 配置文件
       - ../logs:/app/logs          # 日志
     environment:
       # 向量数据库

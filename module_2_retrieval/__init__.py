@@ -1,18 +1,27 @@
 """
-模块2：混合检索引擎
-====================
-结合向量检索（非结构化数据）与 Text-to-SQL（结构化数据），
-通过意图路由器将用户自然语言问题转发到最合适的检索通道。
+兼容层：module_2_retrieval → src/synapsebi/retrieval
+
+业务代码已迁移到 src 布局，此包仅做导入转发，
+保证旧路径的 import（如 from module_2_retrieval.search_engine import ...）继续可用。
 """
 
-from .search_engine import HybridSearchEngine
-from .vector_store import VectorStore
-from .text_to_sql import TextToSQLEngine
-from .router import IntentRouter
+import sys
+from pathlib import Path
 
-__all__ = [
-    "HybridSearchEngine",
-    "VectorStore",
-    "TextToSQLEngine",
-    "IntentRouter",
-]
+_ROOT = Path(__file__).resolve().parents[1]
+_SRC = _ROOT / "src"
+for _p in (_ROOT, _SRC):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+import synapsebi.retrieval.router as router  # noqa: E402
+import synapsebi.retrieval.search_engine as search_engine  # noqa: E402
+import synapsebi.retrieval.text_to_sql as text_to_sql  # noqa: E402
+import synapsebi.retrieval.vector_store as vector_store  # noqa: E402
+import synapsebi.retrieval as _package  # noqa: E402
+
+sys.modules["module_2_retrieval.router"] = router
+sys.modules["module_2_retrieval.search_engine"] = search_engine
+sys.modules["module_2_retrieval.text_to_sql"] = text_to_sql
+sys.modules["module_2_retrieval.vector_store"] = vector_store
+sys.modules["module_2_retrieval"] = _package

@@ -8,35 +8,43 @@
 
 ```
 SynapseBI/
-├── module_1_etl/                  # 模块1：数据接入与预处理管线
-│   ├── __init__.py
-│   ├── pdf_parser.py              # PDF 解析（PyMuPDF / Unstructured / PaddleOCR）
-│   ├── excel_processor.py         # Excel 清洗与 Schema 提取
-│   └── pipeline.py                # ETL 主流程编排
+├── src/
+│   └── synapsebi/                 # 业务代码（src 布局）
+│       ├── etl/                   # 数据接入与预处理管线
+│       │   ├── pdf_parser.py      # PDF 解析（PyMuPDF / Unstructured / PaddleOCR）
+│       │   ├── excel_processor.py # Excel 清洗与 Schema 提取
+│       │   └── pipeline.py        # ETL 主流程编排
+│       ├── retrieval/             # 混合检索引擎
+│       │   ├── vector_store.py    # 向量数据库（Qdrant） + BGE 嵌入
+│       │   ├── text_to_sql.py     # Text-to-SQL 引擎 + SQL 安全校验
+│       │   ├── router.py          # 意图识别路由器
+│       │   └── search_engine.py   # 混合检索引擎主控
+│       └── frontend/              # 前端交互与安全隔离
+│           ├── api.py             # FastAPI RESTful 后端
+│           ├── app.py             # Streamlit 前端看板
+│           └── chart_exporter.py  # 图表多格式导出
 │
-├── module_2_retrieval/            # 模块2：混合检索引擎
-│   ├── __init__.py
-│   ├── vector_store.py            # 向量数据库（Qdrant） + BGE 嵌入
-│   ├── text_to_sql.py             # Text-to-SQL 引擎 + SQL 安全校验
-│   ├── router.py                  # 意图识别路由器
-│   └── search_engine.py           # 混合检索引擎主控
+├── module_1_etl/                  # 兼容层：转发至 src/synapsebi/etl
+├── module_2_retrieval/            # 兼容层：转发至 src/synapsebi/retrieval
+├── module_3_frontend/             # 兼容层：转发至 src/synapsebi/frontend
 │
-├── module_3_frontend/             # 模块3：前端交互与安全隔离
-│   ├── __init__.py
-│   ├── api.py                     # FastAPI RESTful 后端
-│   ├── app.py                     # Streamlit 前端看板
-│   └── chart_exporter.py          # 图表多格式导出
-│
-├── config/
+├── configs/
 │   └── config.yaml                # 全局配置
-│
 ├── docker/
 │   ├── Dockerfile                 # 容器镜像
 │   └── docker-compose.yml         # 一键部署（Qdrant + Ollama + App）
-│
+├── docs/                          # 架构 / API / 部署文档
+├── scripts/                       # 运维与数据入库脚本
+├── tests/                         # 测试与测试数据
+├── .github/workflows/ci.yml       # CI 流水线
+├── pyproject.toml                 # 项目元数据与打包配置
+├── Makefile                       # 常用任务入口
 ├── requirements.txt
 └── README.md
 ```
+
+> 业务代码位于 `src/synapsebi/`，顶层 `module_*` 为兼容层，
+> 旧导入路径与启动命令无需任何改动。
 
 ## 🚀 快速开始
 
@@ -53,6 +61,8 @@ source venv/bin/activate   # Linux/Mac
 
 # 安装依赖
 pip install -r requirements.txt
+# 或可编辑安装（推荐，支持 src 布局与开发工具）
+# pip install -e ".[dev]"
 ```
 
 ### 2. 启动向量数据库
@@ -119,7 +129,7 @@ uvicorn module_3_frontend.api:create_app --factory --host 0.0.0.0 --port 8000
 
 ## ⚙️ 配置
 
-编辑 `config/config.yaml` 调整参数：
+编辑 `configs/config.yaml` 调整参数：
 
 - `vector_store.host` — 向量数据库地址
 - `embedding.model_name` — BGE 嵌入模型

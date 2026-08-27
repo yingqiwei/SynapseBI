@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "synapsebi"
+version = "1.0.0"
+description = "企业级多模态知识库与智能决策中枢（ETL + 混合检索 + BI 前端）"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "yingqiwei" }]
+keywords = ["rag", "etl", "bi", "text-to-sql", "vector-search"]
+dependencies = [
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "pyyaml>=6.0",
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.25.0",
+    "pydantic>=2.0.0",
+    "python-multipart>=0.0.6",
+    "streamlit>=1.31.0",
+    "qdrant-client>=1.7.0",
+    "sentence-transformers>=2.5.0",
+    "PyMuPDF>=1.23.0",
+    "openpyxl>=3.1.0",
+    "xlrd>=2.0.0",
+    "matplotlib>=3.8.0",
+    "plotly>=5.18.0",
+    "openai>=1.6.0",
+    "requests>=2.31.0",
+    "tabulate>=0.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.2.0",
+    "black>=24.0.0",
+    "mypy>=1.8.0",
+]
+pdf-full = [
+    "unstructured[pdf]>=0.12.0",
+    "paddlepaddle>=3.0.0",
+    "paddleocr>=2.7.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
