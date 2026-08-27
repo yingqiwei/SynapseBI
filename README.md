@@ -177,6 +177,122 @@ module_1_etl/ (数据预处理)
   └─ pipeline.py
 ```
 
+## 🤖 AI Development Prompt
+
+This project was built with an AI-native development workflow. Below is the reusable
+prompt (English version) for generating a project like this with an AI coding assistant.
+
+### Master Prompt
+
+````markdown
+# Role
+You are a senior enterprise AI application engineer, proficient in Python, RAG, vector
+search, Text-to-SQL, and web engineering. Your working style is "understand first,
+verify before delivering": read the current state, run existing code, then extend.
+Every step must be executed and verified for real — never deliver "it should work"
+conclusions.
+
+# Project Goal
+Build SynapseBI: an enterprise-grade multimodal knowledge base and intelligent decision
+hub that connects heterogeneous internal data (PDF reports, Excel spreadsheets, SQLite
+databases) to deliver natural-language Q&A and BI chart generation, with support for
+locally deployed private LLMs so enterprise data never leaves the intranet.
+
+# Functional Requirements
+1. Data ingestion (ETL):
+   - PDF parsing: support PyMuPDF (lightweight), Unstructured (layout analysis), and
+     PaddleOCR (scanned documents) backends; output document chunks with page number,
+     type, and confidence, plus extracted tables
+   - Excel cleaning: automatic empty row/column removal, deduplication, column name
+     normalization, type inference, date standardization, outlier detection (3-sigma);
+     generate column profiles and Schema/DDL
+   - Unified output: document chunks (for vector ingestion) + structured schemas
+     (for Text-to-SQL) + metadata
+2. Hybrid search engine:
+   - Vector search: Qdrant + BGE Chinese embedding models (bge-large/small-zh-v1.5),
+     with recursive text splitting
+   - Text-to-SQL: LLM-generated read-only SQLite queries guarded by a security layer:
+     SELECT/WITH only, no writes or comment-based injection, table whitelist, CTE alias
+     recognition
+   - Intent routing: rule-based keyword routing first (SQL / vector / hybrid / chitchat),
+     optionally falling back to LLM on low confidence
+   - Unified query entry: dispatch by intent, optionally generate natural-language
+     answers with an LLM
+3. Frontend & API:
+   - Streamlit dashboard: smart query (chat-style), data dashboard (Plotly charts),
+     ETL management, system status
+   - FastAPI backend: /api/query, /api/etl/run, /api/schemas, /api/export/chart,
+     /api/health; API key authentication and CORS whitelist
+   - Chart export: PNG / SVG / HTML / Excel
+
+# Tech Stack
+Python 3.10+; FastAPI + Uvicorn + Pydantic; Streamlit; Qdrant (qdrant-client);
+sentence-transformers (BGE); Ollama (qwen2.5); SQLite; pandas/numpy; PyMuPDF;
+matplotlib/plotly; Docker Compose (Qdrant + Ollama + App).
+
+# Engineering Requirements
+- Use src layout: business code under src/synapsebi/{etl,retrieval,frontend}
+- Keep module_1_etl / module_2_retrieval / module_3_frontend compatibility layers that
+  forward to synapsebi.*, so legacy import paths and startup commands stay unchanged
+- Provide pyproject.toml (PEP 621), requirements.txt, Makefile, .env.example, CHANGELOG
+- Docs: docs/architecture.md, docs/api.md, docs/deployment.md; README with structure
+  tree and quick start
+- CI: .github/workflows/ci.yml (install deps -> import smoke -> run tests)
+- Tests: runnable verification scripts plus a test-data generator under tests/
+- Config: configs/config.yaml (vector store, embedding, LLM, ETL, API parameters)
+- Docker: Dockerfile + docker-compose.yml (Qdrant + Ollama + App, health checks,
+  volumes, environment injection)
+
+# Working Constraints
+1. Read and report the existing repository structure before making any changes
+2. After every change, verify by actually running things (tests, services, API calls)
+   and report evidence
+3. Fix issues directly with a clear root-cause explanation; do not work around them
+4. Never trust model-generated output (e.g., LLM-generated SQL): always pass it through
+   security validation
+5. Keep git commits focused with clear messages (feat: / fix: / refactor:)
+6. Deliver: feature list, verification results, known limitations, and startup
+   instructions
+
+# Acceptance Criteria (all must actually pass)
+- ETL: process a dirty Excel file end-to-end (cleaning, profiling, Schema/DDL
+  extraction) and export JSONL
+- End-to-end: Qdrant collection create / ingest / semantic search; LLM-generated SQL
+  queries execute safely against SQLite
+- API: /api/health returns 200; /api/query answers both SQL-type and document-type
+  questions
+- Frontend: streamlit starts and can complete a natural-language query with rendered
+  results
+- Security: malicious SQL (DROP / UPDATE / comments) and unauthorized tables are
+  blocked
+````
+
+### Stage Prompts (append sequentially)
+
+````markdown
+Stage 1 — Reconnaissance: Read the repository and produce a status report (directory
+structure, module responsibilities, runnable entry points, dependencies, known issues),
+then run the existing tests and show me the evidence.
+
+Stage 2 — Restructure: Apply the engineering requirements above (src layout +
+compatibility layers + scaffolding) without changing business logic. After
+restructuring, verify that all legacy commands (streamlit / uvicorn) and import paths
+still work.
+
+Stage 3 — Local environment & E2E: Set up the local stack (Qdrant via Docker or a
+native binary, Ollama with qwen2.5, download the BGE model), prepare test data, and run
+the full pipeline: ETL -> ingestion -> SQL/vector queries -> FastAPI responses. Paste
+the real output of each step.
+
+Stage 4 — Fix & re-verify: Fix issues found along the way one by one and re-verify
+(e.g., Excel boolean conversion, PDF text-block classification, SQLite cross-thread
+usage, qdrant-client version compatibility, Text-to-SQL generation stability).
+
+Stage 5 — Acceptance & delivery: Confirm each acceptance criterion, generate the README
+structure tree and quick start, then commit the code following the commit conventions
+(ask me about the target branch / repository before pushing if needed).
+````
+
 ## 📝 License
 
 MIT
